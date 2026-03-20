@@ -1,35 +1,54 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { motion, AnimatePresence } from 'framer-motion';
+import { supabase } from '../lib/supabase';
 import {
-  addTodo,
-  toggleTodo,
-  deleteTodo,
-  setFilter,
   fetchTodos,
-  editTodo
+  addTodoAsync,
+  updateTodoAsync,
+  deleteTodoAsync,
+  setFilter,
+  clearTodos
 } from '../features/todos/todosSlice';
 
 const TodoApp = () => {
-  const [text, setText] = useState('');
-  const [dark, setDark] = useState(false);
-
-  // ✏️ edit state
-  const [editingId, setEditingId] = useState(null);
-  const [editText, setEditText] = useState('');
-
   const dispatch = useDispatch();
   const { items, filter } = useSelector(state => state.todos);
 
-  // fetch initial todos
+  const [text, setText] = useState('');
+  const [tag, setTag] = useState('work');
+  const [dueDate, setDueDate] = useState('');
+  const [dark, setDark] = useState(false);
+
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+
   useEffect(() => {
     dispatch(fetchTodos());
   }, [dispatch]);
 
-  // dark mode toggle
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
   }, [dark]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    dispatch(clearTodos());
+  };
+
+  const handleAdd = () => {
+    if (!text.trim()) return;
+
+    dispatch(addTodoAsync({
+      text,
+      completed: false,
+      tag,
+      due_date: dueDate || null
+    }));
+
+    setText('');
+    setDueDate('');
+  };
 
   const filteredTodos = items.filter(todo => {
     if (filter === 'active') return !todo.completed;
@@ -37,16 +56,17 @@ const TodoApp = () => {
     return true;
   });
 
-  const handleAdd = () => {
-    if (text.trim()) {
-      dispatch(addTodo(text));
-      setText('');
-    }
-  };
+  const isOverdue = (todo) =>
+    todo.due_date &&
+    new Date(todo.due_date) < new Date() &&
+    !todo.completed;
 
   const handleEditSave = (id) => {
     if (editText.trim()) {
-      dispatch(editTodo({ id, text: editText }));
+      dispatch(updateTodoAsync({
+        id,
+        updates: { text: editText }
+      }));
     }
     setEditingId(null);
   };
@@ -61,23 +81,41 @@ const TodoApp = () => {
             ✨ Todo App
           </h1>
 
-          <button
-            onClick={() => setDark(!dark)}
-            className="text-sm px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white"
-          >
-            {dark ? '☀️' : '🌙'}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setDark(!dark)}>
+              {dark ? '☀️' : '🌙'}
+            </button>
+            <button onClick={handleLogout}>🚪</button>
+          </div>
         </div>
 
         {/* Input */}
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-col gap-2 mb-4">
           <input
             value={text}
             onChange={e => setText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             placeholder="What needs to be done?"
-            className="flex-1 px-3 py-2 rounded-lg border dark:bg-gray-700 dark:text-white"
+            className="px-3 py-2 rounded-lg border dark:bg-gray-700 dark:text-white"
+            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           />
+
+          <div className="flex gap-2">
+            <select
+              onChange={e => setTag(e.target.value)}
+              className="px-2 py-1 rounded border"
+            >
+              <option value="work">Work</option>
+              <option value="personal">Personal</option>
+            </select>
+
+            <input
+              type="date"
+              value={dueDate}
+              onChange={e => setDueDate(e.target.value)}
+              className="px-2 py-1 rounded border"
+            />
+          </div>
+
           <button
             onClick={handleAdd}
             className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -92,10 +130,10 @@ const TodoApp = () => {
             <button
               key={f}
               onClick={() => dispatch(setFilter(f))}
-              className={`px-3 py-1 rounded-lg text-sm transition
+              className={`px-3 py-1 rounded-lg text-sm
                 ${filter === f
                   ? 'bg-indigo-600 text-white'
-                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200'
+                  : 'bg-gray-200 dark:bg-gray-700 dark:text-white'
                 }`}
             >
               {f}
@@ -115,7 +153,6 @@ const TodoApp = () => {
                 exit={{ opacity: 0, x: -50 }}
                 className="flex justify-between items-center p-3 rounded-lg bg-gray-100 dark:bg-gray-700"
               >
-                {/* ✏️ EDIT MODE */}
                 {editingId === todo.id ? (
                   <input
                     value={editText}
@@ -130,18 +167,24 @@ const TodoApp = () => {
                   />
                 ) : (
                   <span
-                    onClick={() => dispatch(toggleTodo(todo.id))}
-                    className={`flex-1 cursor-pointer transition
+                    onClick={() =>
+                      dispatch(updateTodoAsync({
+                        id: todo.id,
+                        updates: { completed: !todo.completed }
+                      }))
+                    }
+                    className={`flex-1 cursor-pointer
                       ${todo.completed
                         ? 'line-through opacity-50'
                         : 'text-gray-800 dark:text-white'
-                      }`}
+                      }
+                      ${isOverdue(todo) ? 'text-red-500' : ''}
+                    `}
                   >
                     {todo.text}
                   </span>
                 )}
 
-                {/* Actions */}
                 <div className="flex gap-2 ml-2">
                   <button
                     onClick={() => {
@@ -154,7 +197,7 @@ const TodoApp = () => {
                   </button>
 
                   <button
-                    onClick={() => dispatch(deleteTodo(todo.id))}
+                    onClick={() => dispatch(deleteTodoAsync(todo.id))}
                     className="text-red-500 hover:scale-110 transition"
                   >
                     ❌

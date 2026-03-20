@@ -1,78 +1,103 @@
-import { createSlice, nanoid, createAsyncThunk } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import { supabase } from '../../lib/supabase';
 
-export const fetchTodos = createAsyncThunk(
-    'todos/fetchTodos',
-    async () => {
-        return new Promise(resolve => {
-            setTimeout(() => {
-                resolve([
-                    { id: '1', text: 'Learn Redux', completed: false },
-                    { id: '2', text: 'Build App', completed: true },
-                ]);
-            }, 1000);
-        });
-    }
-);
+// 🔹 Fetch todos (user-specific)
+export const fetchTodos = createAsyncThunk('todos/fetchTodos', async () => {
+  const { data: userData } = await supabase.auth.getUser();
+  const user = userData.user;
 
-const loadState = () => {
-    try {
-        const data = localStorage.getItem('todos');
-        return data ? JSON.parse(data) : [];
-    } catch {
-        return [];
-    }
-};
+  if (!user) return [];
 
-const initialState = {
-    items: loadState(),
-    filter: 'all', // 'all' | 'active' | 'completed'
-};
+  const { data, error } = await supabase
+    .from('todos')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
 
-const todosSlice = createSlice({
-    name: 'todos',
-    initialState,
-    reducers: {
-        addTodo: {
-            reducer(state, action) {
-                state.items.push(action.payload);
-            },
-            prepare(text) {
-                return {
-                    payload: {
-                        id: nanoid(),
-                        text,
-                        completed: false,
-                    },
-                };
-            },
-        },
-        setFilter(state, action) {
-            state.filter = action.payload;
-        },
-        toggleTodo(state, action) {
-            const todo = state.items.find(t => t.id === action.payload);
-            if (todo) {
-                todo.completed = !todo.completed;
-            }
-        },
-        deleteTodo(state, action) {
-            state.items = state.items.filter(t => t.id !== action.payload);
-        },
-        editTodo(state, action) {
-            const { id, text } = action.payload;
-            const todo = state.items.find(t => t.id === id);
-            if (todo) {
-                todo.text = text;
-            }
-        },
-        extraReducers: builder => {
-            builder.addCase(fetchTodos.fulfilled, (state, action) => {
-                state.items = action.payload;
-            });
-        },
-    },
+  if (error) throw error;
+  return data;
 });
 
-export const { addTodo, toggleTodo, deleteTodo, editTodo, setFilter } = todosSlice.actions;
-// export { fetchTodos };
+// 🔹 Add todo
+export const addTodoAsync = createAsyncThunk(
+  'todos/addTodo',
+  async (todo) => {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+
+    const { data, error } = await supabase
+      .from('todos')
+      .insert([{
+        ...todo,
+        user_id: user.id
+      }])
+      .select();
+
+    if (error) throw error;
+    return data[0];
+  }
+);
+
+// 🔹 Update
+export const updateTodoAsync = createAsyncThunk(
+  'todos/updateTodo',
+  async ({ id, updates }) => {
+    const { data, error } = await supabase
+      .from('todos')
+      .update(updates)
+      .eq('id', id)
+      .select();
+
+    if (error) throw error;
+    return data[0];
+  }
+);
+
+// 🔹 Delete
+export const deleteTodoAsync = createAsyncThunk(
+  'todos/deleteTodo',
+  async (id) => {
+    const { error } = await supabase
+      .from('todos')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    return id;
+  }
+);
+
+const todosSlice = createSlice({
+  name: 'todos',
+  initialState: {
+    items: [],
+    filter: 'all',
+  },
+  reducers: {
+    setFilter(state, action) {
+      state.filter = action.payload;
+    },
+    clearTodos(state) {
+      state.items = [];
+    }
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchTodos.fulfilled, (state, action) => {
+        state.items = action.payload;
+      })
+      .addCase(addTodoAsync.fulfilled, (state, action) => {
+        state.items.unshift(action.payload);
+      })
+      .addCase(updateTodoAsync.fulfilled, (state, action) => {
+        const index = state.items.findIndex(t => t.id === action.payload.id);
+        if (index !== -1) state.items[index] = action.payload;
+      })
+      .addCase(deleteTodoAsync.fulfilled, (state, action) => {
+        state.items = state.items.filter(t => t.id !== action.payload);
+      });
+  },
+});
+
+export const { setFilter, clearTodos } = todosSlice.actions;
 export default todosSlice.reducer;
