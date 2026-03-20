@@ -1,16 +1,25 @@
-import React, { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import React, { useState } from "react";
+import { supabase } from "../lib/supabase";
+import toast from "react-hot-toast";
 
 const Auth = () => {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
 
   const handleLogin = async () => {
+    if (!email) {
+      toast.error("Email is required");
+      return;
+    }
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
     });
 
-    if (!error) {
+    if (error) {
+      toast.error(error.message); // ❌ error toast
+    } else {
+      toast.success("Check your email 📩"); // ✅ success toast
       setSent(true);
     }
   };
@@ -22,12 +31,15 @@ const Auth = () => {
 
         <input
           value={email}
-          onChange={e => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value)}
           placeholder="Enter email"
           className="border p-2 mb-2 w-full"
         />
 
-        <button onClick={handleLogin} className="bg-indigo-600 text-white p-2 w-full">
+        <button
+          onClick={handleLogin}
+          className="bg-indigo-600 text-white p-2 w-full"
+        >
           Send Magic Link
         </button>
 

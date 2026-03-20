@@ -2,67 +2,88 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { supabase } from '../../lib/supabase';
 
 // 🔹 Fetch todos (user-specific)
-export const fetchTodos = createAsyncThunk('todos/fetchTodos', async () => {
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData.user;
+export const fetchTodos = createAsyncThunk(
+  'todos/fetchTodos',
+  async (_, { rejectWithValue }) => {
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
 
-  if (!user) return [];
+    if (!user) return [];
 
-  const { data, error } = await supabase
-    .from('todos')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('todos')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
 
-  if (error) throw error;
-  return data;
-});
+    if (error) {
+      return rejectWithValue(error.message);
+    }
+
+    return data;
+  }
+);
 
 // 🔹 Add todo
 export const addTodoAsync = createAsyncThunk(
   'todos/addTodo',
-  async (todo) => {
+  async (todo, { rejectWithValue }) => {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
 
+    if (!user) {
+      return rejectWithValue('User not authenticated');
+    }
+
     const { data, error } = await supabase
       .from('todos')
-      .insert([{
-        ...todo,
-        user_id: user.id
-      }])
+      .insert([
+        {
+          ...todo,
+          user_id: user.id // ✅ IMPORTANT for RLS
+        }
+      ])
       .select();
 
-    if (error) throw error;
+    if (error) {
+      return rejectWithValue(error.message);
+    }
+
     return data[0];
   }
 );
 
-// 🔹 Update
+// 🔹 Update todo
 export const updateTodoAsync = createAsyncThunk(
   'todos/updateTodo',
-  async ({ id, updates }) => {
+  async ({ id, updates }, { rejectWithValue }) => { // ✅ FIXED
     const { data, error } = await supabase
       .from('todos')
       .update(updates)
       .eq('id', id)
       .select();
 
-    if (error) throw error;
+    if (error) {
+      return rejectWithValue(error.message);
+    }
+
     return data[0];
   }
 );
 
-// 🔹 Delete
+// 🔹 Delete todo
 export const deleteTodoAsync = createAsyncThunk(
   'todos/deleteTodo',
-  async (id) => {
+  async (id, { rejectWithValue }) => { // ✅ FIXED
     const { error } = await supabase
       .from('todos')
       .delete()
       .eq('id', id);
 
-    if (error) throw error;
+    if (error) {
+      return rejectWithValue(error.message);
+    }
+
     return id;
   }
 );
@@ -91,7 +112,9 @@ const todosSlice = createSlice({
       })
       .addCase(updateTodoAsync.fulfilled, (state, action) => {
         const index = state.items.findIndex(t => t.id === action.payload.id);
-        if (index !== -1) state.items[index] = action.payload;
+        if (index !== -1) {
+          state.items[index] = action.payload;
+        }
       })
       .addCase(deleteTodoAsync.fulfilled, (state, action) => {
         state.items = state.items.filter(t => t.id !== action.payload);
